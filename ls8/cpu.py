@@ -2,7 +2,6 @@
 
 import sys
 
-
 LDI = 0b10000010
 PRN = 0b01000111 # Print
 HLT = 0b00000001  # Halt
@@ -14,49 +13,38 @@ PUSH = 0b01000101 # Stack Push
 POP = 0b01000110 # Stack Pop
 SP = 7 # Stack pointer
 
+CMP = 0b10100111
+JMP = 0b01010100
+JEQ = 0b01010101
+JNE = 0b01010110
+
 class CPU:
     """Main CPU class."""
 
     def __init__(self):
         """Construct a new CPU."""
+
         self.ram = [0] * 256
         self.reg = [0] * 8
         self.pc = 0
         self.running = True
         self.reg[7] = 0xF4
-
+        self.flag = 0b00000000
 
     def load(self):
         """Load a program into memory."""
-        filename = sys.argv[1]
 
         address = 0
 
-        # For now, we've just hardcoded a program:
-
-        # program = [
-        #     # From print8.ls8
-        #     0b10000010, # LDI R0,8
-        #     0b00000000,
-        #     0b00001000,
-        #     0b01000111, # PRN R0
-        #     0b00000000,
-        #     0b00000001, # HLT
-        #    ]
-        #
-        # for instruction in program:
-        #     self.ram[address] = instruction
-        #     address += 1
-
-        with open(filename) as f:
+        with open(sys.argv[1]) as f:
+            address = 0
             for line in f:
-                line = line.split("#")[0].strip()
-                if line == "":
+                value = line.split("#")[0].strip()
+                if value == '':
                     continue
-                else:
-                    self.ram[address] = int(line, 2)
-                    address += 1
-
+                v = int(value, 2)
+                self.ram[address] = v
+                address += 1
 
 
     def alu(self, op, reg_a, reg_b):
@@ -68,10 +56,22 @@ class CPU:
             self.reg[reg_a] -= self.reg[reg_b]
         elif op == "MUL":
             self.reg[reg_a] *= self.reg[reg_b]
-        elif op == "DIV":
-            self.reg[reg_a] /= self.reg[reg_b]
+        elif op == "CMP":
+            if self.reg[reg_a] == self.reg[reg_b]:
+                self.flag = 0b00000001
+            elif self.reg[reg_a] > self.reg[reg_b]:
+                self.flag = 0b10000010
+            else:
+                self.flag = 0b00000100
         else:
             raise Exception("Unsupported ALU operation")
+
+
+    def ram_read(self, address):
+        return self.ram[address]
+
+    def ram_write(self, value, address):
+        self.ram[address] = value
 
     def trace(self):
         """
@@ -93,40 +93,38 @@ class CPU:
 
         print()
 
-    def ram_read(self, address):
-        return self.ram[address]
-
-    def ram_write(self, address, value):
-        self.ram[address] = value
-
-    def HLT(self):
-        self.running = False
-
     def run(self):
         """Run the CPU."""
         self.load()
+
         while self.running:
-            program_register = self.ram[self.pc]
-            reg_a = self.ram[self.pc + 1]
-            reg_b = self.ram[self.pc + 2]
+            instruction = self.ram_read(self.pc)
+            opr_a = self.ram_read(self.pc + 1)
+            opr_b = self.ram_read(self.pc + 2)
 
-            if program_register == HLT:
-                self.HLT()
-                self.pc += 1
+            if instruction == HLT:
+                running = False
+                self.pc +=1
 
-            elif program_register == LDI:
-                self.reg[reg_a] = reg_b
+            elif instruction == LDI:
+                self.reg[opr_a] = opr_b
                 self.pc += 3
 
-            elif program_register == PRN:
-                print(self.reg[reg_a])
+            elif instruction == PRN:
+                print(self.reg[opr_a])
                 self.pc += 2
 
-            elif program_register == MUL:
-                self.reg[reg_a] *= self.reg[reg_b]
+            elif instruction == ADD:
+                added = self.reg[opr_a] + self.reg[opr_b]
+                self.reg[opr_a] = added
                 self.pc += 3
 
-            elif program_register == PUSH:
+            elif instruction == MUL:
+                product = self.reg[opr_a] * self.reg[opr_b]
+                self.reg[opr_a] = product
+                self.pc += 3
+
+            elif instruction == PUSH:
                 self.reg[SP] -= 1
                 stack_address = self.reg[SP]
                 register_number = self.ram_read(self.pc + 1)
@@ -134,13 +132,33 @@ class CPU:
                 self.ram_write(stack_address, register_number_value)
                 self.pc += 2
 
-            elif program_register == POP:
+            elif instruction == POP:
                 stack_value = self.ram_read(self.reg[SP])
                 register_number = self.ram_read(self.pc + 1)
                 self.reg[register_number] = stack_value
                 self.reg[SP] += 1
                 self.pc += 2
 
+            elif instruction == CMP:
+                self.alu('CMP', opr_a, opr_b)
+                self.pc += 3
+
+            elif instruction == JMP:
+                break
+                self.pc == self.reg[opr_a]
+
+            elif instruction == JEQ:
+                if (self.flag & HLT) == 1:
+                    self.pc = self.reg[opr_a]
+                else:
+                    self.pc += 2
+
+            elif instruction == JNE:
+                if (self.flag & HLT) == 0:
+                    self.pc = self.reg[opr_a]
+                else:
+                    self.pc += 2
+
             else:
-                print(f"Instruction '{program_register}'' at address '{self.pc}' is not recognized")
-                self.pc += 1
+                print(f"Instruction '{instruction}'' at address '{self.pc}' is not recognized")
+                sys.exit(1)
